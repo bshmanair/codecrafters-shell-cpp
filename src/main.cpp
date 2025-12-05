@@ -37,8 +37,9 @@ int main()
 				std::cout << tokens[i] << " ";
 			std::cout << std::endl;
 		}
+		else
+			std::cout << command << ": command not found" << std::endl;
 
-		std::cout << command << ": command not found" << std::endl;
 	} while (true);
 
 	return 0;
