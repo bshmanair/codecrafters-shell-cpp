@@ -75,7 +75,10 @@ int main()
 							continue;
 					}
 					else
+					{
 						std::cout << file << ": not found";
+						break;
+					}
 				}
 			}
 			std::cout << std::endl;
