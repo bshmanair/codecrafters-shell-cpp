@@ -40,8 +40,15 @@ int main()
 				std::cout << tokens[i] << " ";
 			std::cout << std::endl;
 		}
-		else if (command == "type" && builtin.find(tokens[1]) != builtin.end())
-			std::cout << tokens[1] << " is a shell builtin" << std::endl;
+		else if (command == "type")
+		{
+			if (builtin.find(tokens[1]) != builtin.end())
+				std::cout << tokens[1] << " is a shell builtin";
+			else
+				std::cout << tokens[1] << ": not found";
+			std::cout << std::endl;
+		}
+
 		else
 			std::cout << command << ": command not found" << std::endl;
 
