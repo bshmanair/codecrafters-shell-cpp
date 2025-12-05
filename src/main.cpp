@@ -2,6 +2,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <unordered_set>
 
 std::vector<std::string> split(const std::string &str)
 {
@@ -19,15 +20,17 @@ int main()
 	std::cout << std::unitbuf;
 	std::cerr << std::unitbuf;
 
+	std::string input;
+
 	// TODO: Uncomment the code below to pass the first stage
 	do
 	{
 		std::cout << "$ ";
-
-		std::string input;
 		std::getline(std::cin, input);
 		std::vector<std::string> tokens = split(input);
 		std::string command = tokens[0];
+
+		std::unordered_set<std::string> builtin = {"exit", "echo", "type"};
 
 		if (command == "exit")
 			return 0;
@@ -37,6 +40,8 @@ int main()
 				std::cout << tokens[i] << " ";
 			std::cout << std::endl;
 		}
+		else if (command == "type" && builtin.find(tokens[1]) != builtin.end())
+			std::cout << tokens[1] << " is a shell builtin" << std::endl;
 		else
 			std::cout << command << ": command not found" << std::endl;
 
