@@ -4,8 +4,17 @@
 #include <vector>
 #include <unordered_set>
 #include <filesystem>
+#include <unistd.h>
+
+#if _WIN32
+char separator = ';';
+#else
+char separator = ':';
+#endif
 
 std::unordered_set<std::string> builtin = {"exit", "echo", "type"};
+const char *path = std::getenv("PATH");
+std::vector<std::string> dirs = split(path, separator); // make it os-agnostic
 
 std::vector<std::string> split(const std::string &str, char delimiter)
 {
@@ -30,15 +39,8 @@ int main()
 	std::cout << std::unitbuf;
 	std::cerr << std::unitbuf;
 
-#if _WIN32
-	char separator = ';';
-#else
-	char separator = ':';
-#endif
-
 	std::string input;
 
-	// TODO: Uncomment the code below to pass the first stage
 	do
 	{
 		std::cout << "$ ";
@@ -47,32 +49,33 @@ int main()
 		std::string command = tokens.at(0);
 
 		if (command == "exit")
+		{
 			return 0;
+		}
 		else if (command == "echo")
 		{
 			for (int i = 1; i < tokens.size(); i++)
+			{
 				std::cout << tokens.at(i) << " ";
+			}
 			std::cout << std::endl;
 		}
 		else if (command == "type")
 		{
 			std::string file = tokens.at(1);
-			const char *path = std::getenv("PATH");
-			std::vector<std::string> dirs = split(path, separator); // make it os-agnostic
-
 			if (builtin.find(file) != builtin.end())
 			{
 				std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
 				continue;
 			}
-
 			bool found = false;
 			for (auto &dir : dirs)
 			{
 				if (dir.empty())
+				{
 					continue;
+				}
 				std::filesystem::path full = std::filesystem::path(dir) / file;
-
 				if (std::filesystem::exists(full))
 				{
 					if (is_executable(full))
@@ -87,10 +90,30 @@ int main()
 			if (!found)
 				std::cout << file << ": not found\n";
 		}
-
 		else
+		{
+			bool found = false;
+			for (auto &dir : dirs)
+			{
+				if (dir.empty())
+				{
+					continue;
+				}
+				std::filesystem::path full = std::filesystem::path(dir) / command;
+				if (std::filesystem::exists(full))
+				{
+					if (is_executable(full))
+					{
+						std::cout << command << " is " << full.string() << std::endl;
+						found = true;
+						break;
+					}
+				}
+			}
 			std::cout << command << ": command not found" << std::endl;
-
+			if (!found)
+				std::cout << command << ": not found\n";
+		}
 	} while (true);
 
 	return 0;
