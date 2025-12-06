@@ -60,27 +60,32 @@ int main()
 			const char *path = std::getenv("PATH");
 			std::vector<std::string> dirs = split(path, separator); // make it os-agnostic
 
-			if (builtin.find(tokens.at(1)) != builtin.end())
-				std::cout << tokens.at(1) << " is a shell builtin";
-			else
+			if (builtin.find(file) != builtin.end())
 			{
-				for (auto &dir : dirs)
+				std::cout << tokens.at(1) << " is a shell builtin";
+				continue;
+			}
+
+			bool found = false;
+			for (auto &dir : dirs)
+			{
+				if (dir.empty())
+					continue;
+				std::filesystem::path full = std::filesystem::path(dir) / file;
+
+				if (std::filesystem::exists(full))
 				{
-					std::string pathToFile = dir + tokens.at(1);
-					if (std::filesystem::exists(pathToFile))
+					if (is_executable(full))
 					{
-						if (is_executable(pathToFile))
-							std::cout << file << " is " << pathToFile;
-						continue;
-					}
-					else
-					{
-						std::cout << file << ": not found";
+						std::cout << file << " is " << full.string() << std::endl;
+						found = true;
 						break;
 					}
 				}
 			}
-			std::cout << std::endl;
+
+			if (!found)
+				std::cout << file << ": not found\n";
 		}
 
 		else
