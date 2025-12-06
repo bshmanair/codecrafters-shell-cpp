@@ -18,7 +18,7 @@ char separator = ';';
 char separator = ':';
 #endif
 
-std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd"};
+std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
 const char *path = std::getenv("PATH");
 std::vector<std::string> dirs = split(path, separator);
 
@@ -36,6 +36,20 @@ int main()
 		std::string command = tokens.at(0);
 		if (command == "exit")
 			return 0;
+		else if (command == "cd")
+		{
+			std::string target;
+			if (tokens.size() == 1)
+			{
+				char *home = std::getenv("HOME");
+				target = home ? home : "/";
+			}
+			else
+				target = tokens[1];
+
+			if (chdir(target.c_str()) != 0)
+				perror("cd");
+		}
 		else if (command == "echo")
 		{
 			for (int i = 1; i < tokens.size(); i++)
@@ -59,10 +73,8 @@ int main()
 			else
 				std::cout << file << ": not found" << std::endl;
 		}
-		else if (command == "pwd") // TODO: argument length check
-		{
+		else if (command == "pwd") // argument length check needed
 			std::cout << std::filesystem::current_path().string() << std::endl;
-		}
 		else
 		{
 			std::vector<char *> args;
