@@ -9,8 +9,8 @@
 #include <optional>
 
 std::vector<std::string> split(const std::string &str, const char delimiter);
-bool is_executable(const std::filesystem::path &p);
-std::optional<std::filesystem::path> searchExecutable(const std::string &filename, std::filesystem::path &path);
+bool isExecutable(const std::filesystem::path &p);
+std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
 
 #if _WIN32
 char separator = ';';
@@ -103,7 +103,7 @@ std::vector<std::string> split(const std::string &str, char delimiter)
 	return tokens;
 }
 
-bool is_executable(const std::filesystem::path &p)
+bool isExecutable(const std::filesystem::path &p)
 {
 	using namespace std::filesystem;
 	auto pr = status(p).permissions();
@@ -117,7 +117,7 @@ std::optional<std::filesystem::path> searchExecutable(const std::string &filenam
 		if (dir.empty())
 			continue;
 		std::filesystem::path full = std::filesystem::path(dir) / filename;
-		if (std::filesystem::exists(full) && is_executable(full))
+		if (std::filesystem::exists(full) && isExecutable(full))
 			return full;
 	}
 	return std::nullopt;
