@@ -8,9 +8,13 @@
 #include <sys/wait.h>
 #include <optional>
 
-std::vector<std::string> split(const std::string &str, const char delimiter);
-bool isExecutable(const std::filesystem::path &p);
-std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
+namespace Shell
+{
+	std::vector<std::string> split(const std::string &str, const char delimiter);
+	bool isExecutable(const std::filesystem::path &p);
+	std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
+	std::vector<std::string> tokenize(const std::string &input);
+}
 
 #if _WIN32
 char separator = ';';
@@ -20,7 +24,7 @@ char separator = ':';
 
 const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
 const char *path = std::getenv("PATH");
-std::vector<std::string> dirs = split(path, separator);
+std::vector<std::string> dirs = Shell::split(path, separator);
 
 int main()
 {
@@ -32,7 +36,7 @@ int main()
 	{
 		std::cout << "$ ";
 		std::getline(std::cin, input);
-		std::vector<std::string> tokens = split(input, ' ');
+		std::vector<std::string> tokens = Shell::tokenize(input);
 		std::string command = tokens.at(0);
 		if (command == "exit")
 		{
@@ -74,7 +78,7 @@ int main()
 			}
 
 			// Check if it's an executable
-			auto filePath = searchExecutable(file);
+			auto filePath = Shell::searchExecutable(file);
 			if (filePath)
 				std::cout << file << " is " << filePath->string() << std::endl;
 			else
@@ -91,7 +95,7 @@ int main()
 				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
 			args.push_back(nullptr);
 
-			auto execPath = searchExecutable(command);
+			auto execPath = Shell::searchExecutable(command);
 			if (!execPath)
 			{
 				std::cout << command << ": not found" << std::endl;
@@ -115,7 +119,7 @@ int main()
 	return 1; // program must not get here
 }
 
-std::vector<std::string> split(const std::string &str, char delimiter)
+std::vector<std::string> Shell::split(const std::string &str, char delimiter)
 {
 	std::stringstream ss(str);
 	std::string token;
@@ -125,14 +129,14 @@ std::vector<std::string> split(const std::string &str, char delimiter)
 	return tokens;
 }
 
-bool isExecutable(const std::filesystem::path &p)
+bool Shell::isExecutable(const std::filesystem::path &p)
 {
 	using namespace std::filesystem;
 	auto pr = status(p).permissions();
 	return (pr & (perms::owner_exec | perms::group_exec | perms::others_exec)) != perms::none;
 }
 
-std::optional<std::filesystem::path> searchExecutable(const std::string &filename)
+std::optional<std::filesystem::path> Shell::searchExecutable(const std::string &filename)
 {
 	for (const auto &dir : dirs)
 	{
@@ -143,4 +147,52 @@ std::optional<std::filesystem::path> searchExecutable(const std::string &filenam
 			return full;
 	}
 	return std::nullopt;
+}
+
+std::vector<std::string> Shell::tokenize(const std::string &input)
+{
+	std::vector<std::string> tokens;
+	std::string current;
+	bool in_single = false;
+
+	for (size_t i = 0; i < input.size(); ++i)
+	{
+		char c = input.at(i);
+
+		if (in_single)
+		{
+			if (c == '\'')
+			{
+				in_single = false;
+			}
+			else
+			{
+				current.push_back(c);
+			}
+		}
+		else
+		{
+			if (std::isspace(c))
+			{
+				if (!current.empty())
+				{
+					tokens.push_back(current);
+					current.clear();
+				}
+			}
+			else if (c == '\'')
+			{
+				in_single = true;
+			}
+			else
+			{
+				current.push_back(c);
+			}
+		}
+	}
+	if (!current.empty())
+	{
+		tokens.push_back(current);
+	}
+	return tokens;
 }
