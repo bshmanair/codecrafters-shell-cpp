@@ -120,7 +120,6 @@ int main()
 				{
 					int status;
 					waitpid(processID, &status, 0);
-					std::cout << "Program was passed " << args.size() << " args (including program name)." << std::endl;
 				}
 			}
 		}
