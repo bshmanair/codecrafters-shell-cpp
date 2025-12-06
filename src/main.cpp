@@ -62,7 +62,7 @@ int main()
 
 			if (builtin.find(file) != builtin.end())
 			{
-				std::cout << tokens.at(1) << " is a shell builtin";
+				std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
 				continue;
 			}
 
