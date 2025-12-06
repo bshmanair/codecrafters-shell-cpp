@@ -40,7 +40,7 @@ int main()
 		{
 			// get target folder. if user doesn't input a 2nd argument, assume HOME
 			const char *targetFolder;
-			if (tokens.size() == 1)
+			if (tokens.size() == 1 || (tokens.size() == 2 && (tokens.at(1) == "~")))
 				targetFolder = std::getenv("HOME");
 			else
 				targetFolder = tokens.at(1).c_str();
