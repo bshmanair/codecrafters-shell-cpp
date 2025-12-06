@@ -83,7 +83,7 @@ int main()
 			// make sure to fork it
 
 			std::vector<char *> args; // extract arguments from tokens
-			for (int i = 1; i < tokens.size(); i++)
+			for (int i = 0; i < tokens.size(); i++)
 			{
 				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
 			}
