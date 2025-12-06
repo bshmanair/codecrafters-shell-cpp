@@ -18,7 +18,7 @@ char separator = ';';
 char separator = ':';
 #endif
 
-std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
+const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
 const char *path = std::getenv("PATH");
 std::vector<std::string> dirs = split(path, separator);
 
@@ -38,21 +38,28 @@ int main()
 			return 0;
 		else if (command == "cd")
 		{
-			std::string target;
+			// get target folder. if user doesn't input a 2nd argument, assume HOME
+			const char *targetFolder;
 			if (tokens.size() == 1)
-			{
-				char *home = std::getenv("HOME");
-				target = home ? home : "/";
-			}
+				targetFolder = std::getenv("HOME");
 			else
-				target = tokens[1];
+				targetFolder = tokens.at(1).c_str();
 
-			if (chdir(target.c_str()) != 0)
-				perror("cd");
+			if (!std::filesystem::exists(targetFolder) || !std::filesystem::is_directory(targetFolder))
+			{
+				std::cout << targetFolder << ": No such file or directory" << std::endl;
+				continue;
+			}
+
+			if (chdir(targetFolder) == -1)
+			{
+				std::cerr << "chdir() error: " << targetFolder << std::endl;
+				continue;
+			}
 		}
 		else if (command == "echo")
 		{
-			for (int i = 1; i < tokens.size(); i++)
+			for (size_t i = 1; i < tokens.size(); i++)
 				std::cout << tokens.at(i) << " ";
 			std::cout << std::endl;
 		}
@@ -67,9 +74,9 @@ int main()
 			}
 
 			// Check if it's an executable
-			auto path = searchExecutable(file);
-			if (path)
-				std::cout << file << " is " << path->string() << std::endl;
+			auto filePath = searchExecutable(file);
+			if (filePath)
+				std::cout << file << " is " << filePath->string() << std::endl;
 			else
 				std::cout << file << ": not found" << std::endl;
 		}
@@ -78,7 +85,7 @@ int main()
 		else
 		{
 			std::vector<char *> args;
-			for (int i = 0; i < tokens.size(); i++)
+			for (size_t i = 0; i < tokens.size(); i++)
 				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
 			args.push_back(nullptr);
 
@@ -103,7 +110,7 @@ int main()
 		}
 	} while (true);
 
-	return 0;
+	return 1; // program must not get here
 }
 
 std::vector<std::string> split(const std::string &str, char delimiter)
