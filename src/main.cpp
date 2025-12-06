@@ -5,9 +5,11 @@
 #include <unordered_set>
 #include <filesystem>
 #include <unistd.h>
+#include <sys/wait.h>
 
-std::vector<std::string> split(const std::string &str, char delimiter);
+std::vector<std::string> split(const std::string &str, const char delimiter);
 bool is_executable(const std::filesystem::path &p);
+std::string searchExecutable(const std::string &filename);
 
 #if _WIN32
 char separator = ';';
@@ -17,24 +19,7 @@ char separator = ':';
 
 std::unordered_set<std::string> builtin = {"exit", "echo", "type"};
 const char *path = std::getenv("PATH");
-std::vector<std::string> dirs = split(path, separator); // make it os-agnostic
-
-std::vector<std::string> split(const std::string &str, char delimiter)
-{
-	std::stringstream ss(str);
-	std::string token;
-	std::vector<std::string> tokens;
-	while (std::getline(ss, token, delimiter))
-		tokens.push_back(token);
-	return tokens;
-}
-
-bool is_executable(const std::filesystem::path &p)
-{
-	using namespace std::filesystem;
-	auto pr = status(p).permissions();
-	return (pr & (perms::owner_exec | perms::group_exec | perms::others_exec)) != perms::none;
-}
+std::vector<std::string> dirs = split(path, separator);
 
 int main()
 {
@@ -79,23 +64,32 @@ int main()
 					continue;
 				}
 				std::filesystem::path full = std::filesystem::path(dir) / file;
-				if (std::filesystem::exists(full))
+				if (std::filesystem::exists(full) && is_executable(full))
 				{
-					if (is_executable(full))
-					{
-						std::cout << file << " is " << full.string() << std::endl;
-						found = true;
-						break;
-					}
+					std::cout << file << " is " << full.string() << std::endl;
+					found = true;
+					break;
 				}
 			}
-
 			if (!found)
-				std::cout << file << ": not found\n";
+				std::cout << file << ": not found" << std::endl;
 		}
 		else
 		{
-			bool found = false;
+			// custom_exe_1234 alice
+			// search for exec with given name
+			// if found, execute
+			// pass arguments to program too
+			// make sure to fork it
+
+			std::vector<char *> args; // extract arguments from tokens
+			for (int i = 1; i < tokens.size(); i++)
+			{
+				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
+			}
+			args.push_back(nullptr);
+
+			bool found = false; // existence check
 			for (auto &dir : dirs)
 			{
 				if (dir.empty())
@@ -105,16 +99,48 @@ int main()
 				std::filesystem::path full = std::filesystem::path(dir) / command;
 				if (std::filesystem::exists(full) && is_executable(full))
 				{
-					std::cout << command << " is " << full.string() << std::endl;
 					found = true;
 					break;
 				}
 			}
-			std::cout << command << ": command not found" << std::endl;
 			if (!found)
-				std::cout << command << ": not found\n";
+			{
+				std::cout << command << ": not found" << std::endl;
+			}
+			else
+			{
+				pid_t processID = fork();
+				if (processID == 0)
+				{
+					execvp(args[0], args.data());
+					std::cerr << "execvp failed" << std::endl;
+					std::exit(1);
+				}
+				else
+				{
+					int status;
+					waitpid(processID, &status, 0);
+				}
+			}
 		}
 	} while (true);
 
 	return 0;
+}
+
+std::vector<std::string> split(const std::string &str, char delimiter)
+{
+	std::stringstream ss(str);
+	std::string token;
+	std::vector<std::string> tokens;
+	while (std::getline(ss, token, delimiter))
+		tokens.push_back(token);
+	return tokens;
+}
+
+bool is_executable(const std::filesystem::path &p)
+{
+	using namespace std::filesystem;
+	auto pr = status(p).permissions();
+	return (pr & (perms::owner_exec | perms::group_exec | perms::others_exec)) != perms::none;
 }
