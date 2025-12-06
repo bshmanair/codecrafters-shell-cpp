@@ -71,8 +71,7 @@ int main()
 					{
 						if (is_executable(pathToFile))
 							std::cout << file << " is " << pathToFile;
-						else
-							continue;
+						continue;
 					}
 					else
 					{
