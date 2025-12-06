@@ -35,7 +35,9 @@ int main()
 		std::vector<std::string> tokens = split(input, ' ');
 		std::string command = tokens.at(0);
 		if (command == "exit")
+		{
 			return 0;
+		}
 		else if (command == "cd")
 		{
 			// get target folder. if user doesn't input a 2nd argument, assume HOME
@@ -44,13 +46,11 @@ int main()
 				targetFolder = std::getenv("HOME");
 			else
 				targetFolder = tokens.at(1).c_str();
-
 			if (!std::filesystem::exists(targetFolder) || !std::filesystem::is_directory(targetFolder))
 			{
 				std::cout << targetFolder << ": No such file or directory" << std::endl;
 				continue;
 			}
-
 			if (chdir(targetFolder) == -1)
 			{
 				std::cerr << "chdir() error: " << targetFolder << std::endl;
@@ -81,7 +81,9 @@ int main()
 				std::cout << file << ": not found" << std::endl;
 		}
 		else if (command == "pwd") // argument length check needed
+		{
 			std::cout << std::filesystem::current_path().string() << std::endl;
+		}
 		else
 		{
 			std::vector<char *> args;
