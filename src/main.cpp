@@ -70,7 +70,7 @@ int main()
 				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
 			args.push_back(nullptr);
 
-			if (searchExecutable(command))
+			if (!searchExecutable(command))
 			{
 				std::cout << command << ": not found" << std::endl;
 				continue;
