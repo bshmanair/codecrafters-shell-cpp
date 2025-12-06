@@ -6,6 +6,9 @@
 #include <filesystem>
 #include <unistd.h>
 
+std::vector<std::string> split(const std::string &str, char delimiter);
+bool is_executable(const std::filesystem::path &p);
+
 #if _WIN32
 char separator = ';';
 #else
@@ -100,14 +103,11 @@ int main()
 					continue;
 				}
 				std::filesystem::path full = std::filesystem::path(dir) / command;
-				if (std::filesystem::exists(full))
+				if (std::filesystem::exists(full) && is_executable(full))
 				{
-					if (is_executable(full))
-					{
-						std::cout << command << " is " << full.string() << std::endl;
-						found = true;
-						break;
-					}
+					std::cout << command << " is " << full.string() << std::endl;
+					found = true;
+					break;
 				}
 			}
 			std::cout << command << ": command not found" << std::endl;
