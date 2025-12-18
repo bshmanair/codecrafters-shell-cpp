@@ -97,13 +97,13 @@ int main()
 				continue;
 			}
 
-			// Resolve executables (optional but gives nicer errors)
-			if (!searchExecutable(leftTokens[0]))
+			// Resolve executables only if NOT builtin
+			if (!builtin.count(leftTokens[0]) && !searchExecutable(leftTokens[0]))
 			{
 				std::cout << leftTokens[0] << ": not found" << std::endl;
 				continue;
 			}
-			if (!searchExecutable(rightTokens[0]))
+			if (!builtin.count(rightTokens[0]) && !searchExecutable(rightTokens[0]))
 			{
 				std::cout << rightTokens[0] << ": not found" << std::endl;
 				continue;
