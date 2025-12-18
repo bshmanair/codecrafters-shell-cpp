@@ -192,7 +192,7 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 		case NORMAL:
 			if (c == '\\')
 			{
-				// Backslash escapes next character ONLY in NORMAL state
+				// Escape next character literally
 				if (i + 1 < input.size())
 				{
 					current.push_back(input[++i]);
@@ -221,7 +221,7 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 			break;
 
 		case IN_SINGLE:
-			// EVERYTHING is literal inside single quotes
+			// Everything is literal
 			if (c == '\'')
 			{
 				state = NORMAL;
@@ -233,7 +233,29 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 			break;
 
 		case IN_DOUBLE:
-			if (c == '"')
+			if (c == '\\')
+			{
+				// Only \" and \\ are escaped in this stage
+				if (i + 1 < input.size())
+				{
+					char next = input[i + 1];
+					if (next == '"' || next == '\\')
+					{
+						current.push_back(next);
+						++i;
+					}
+					else
+					{
+						// Backslash is literal for all other characters
+						current.push_back('\\');
+					}
+				}
+				else
+				{
+					current.push_back('\\');
+				}
+			}
+			else if (c == '"')
 			{
 				state = NORMAL;
 			}
