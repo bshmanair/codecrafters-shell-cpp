@@ -38,6 +38,7 @@ void loadHistoryFromFile();
 void appendHistoryOnExit();
 void saveHistoryToHistfile();
 
+std::vector<std::string> getExecutablesInPath();
 char *builtinGenerator(const char *text, int state);
 char **completionHook(const char *text, int start, int end);
 std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
@@ -877,20 +878,36 @@ char *builtinGenerator(const char *text, int state)
 {
 	static size_t index;
 	static size_t len;
+	static std::vector<std::string> matches;
 
 	if (state == 0)
 	{
 		index = 0;
 		len = std::strlen(text);
+		matches.clear();
+
+		// Builtins
+		for (const auto &cmd : builtinCompletions)
+		{
+			if (cmd.compare(0, len, text) == 0)
+			{
+				matches.push_back(cmd);
+			}
+		}
+
+		// External executables
+		for (const auto &exe : getExecutablesInPath())
+		{
+			if (exe.compare(0, len, text) == 0)
+			{
+				matches.push_back(exe);
+			}
+		}
 	}
 
-	while (index < builtinCompletions.size())
+	if (index < matches.size())
 	{
-		const std::string &cmd = builtinCompletions[index++];
-		if (cmd.compare(0, len, text) == 0)
-		{
-			return strdup(cmd.c_str());
-		}
+		return strdup(matches[index++].c_str());
 	}
 
 	return nullptr;
@@ -905,4 +922,48 @@ char **completionHook(const char *text, int start, int end)
 	}
 
 	return nullptr;
+}
+
+std::vector<std::string> getExecutablesInPath()
+{
+	std::vector<std::string> results;
+
+	const char *pathEnv = std::getenv("PATH");
+	if (!pathEnv)
+	{
+		return results;
+	}
+
+	std::stringstream ss(pathEnv);
+	std::string dir;
+
+	while (std::getline(ss, dir, separator))
+	{
+		if (dir.empty())
+		{
+			continue;
+		}
+
+		std::error_code ec;
+		if (!std::filesystem::exists(dir, ec))
+		{
+			continue;
+		}
+
+		for (const auto &entry : std::filesystem::directory_iterator(dir, ec))
+		{
+			if (ec)
+			{
+				continue;
+			}
+
+			const auto &path = entry.path();
+			if (std::filesystem::is_regular_file(path) && isExecutable(path))
+			{
+				results.push_back(path.filename().string());
+			}
+		}
+	}
+
+	return results;
 }
