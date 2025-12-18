@@ -33,7 +33,7 @@ char separator = ';';
 char separator = ':';
 #endif
 
-// --- Forward decls ---
+void loadHistoryFromFile();
 std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
 void runBuiltin(const std::vector<std::string> &tokens);
 std::vector<std::string> split(const std::string &str, char delimiter);
@@ -64,7 +64,8 @@ int main()
 	std::cout << std::unitbuf;
 	std::cerr << std::unitbuf;
 
-	std::string input;
+	loadHistoryFromFile();
+
 	while (true)
 	{
 		char *line = readline("$ ");
@@ -802,4 +803,27 @@ std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string>
 	}
 
 	return cmds;
+}
+
+void loadHistoryFromFile()
+{
+	const char *histfile = std::getenv("HISTFILE");
+	if (!histfile)
+		return;
+
+	std::ifstream file(histfile);
+	if (!file.is_open())
+		return;
+
+	std::string line;
+	while (std::getline(file, line))
+	{
+		if (line.empty())
+			continue;
+
+		commandHistory.push_back(line);
+		add_history(line.c_str());
+	}
+
+	historyWrittenCount = commandHistory.size();
 }
