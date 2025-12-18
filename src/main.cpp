@@ -972,7 +972,6 @@ std::vector<std::string> getExecutablesInPath()
 
 void displayMatches(char **matches, int num_matches, int max_length)
 {
-	// matches[0] is the original text, skip it
 	std::vector<std::string> items;
 	for (int i = 1; i <= num_matches; ++i)
 	{
@@ -987,8 +986,12 @@ void displayMatches(char **matches, int num_matches, int max_length)
 		std::cout << items[i];
 		if (i + 1 < items.size())
 		{
-			std::cout << "  "; // two spaces
+			std::cout << "  ";
 		}
 	}
 	std::cout << std::endl;
+
+	// 🔑 REQUIRED: restore prompt + buffer
+	rl_on_new_line();
+	rl_redisplay();
 }
