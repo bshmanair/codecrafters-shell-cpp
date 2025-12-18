@@ -34,6 +34,7 @@ char separator = ':';
 #endif
 
 void loadHistoryFromFile();
+void saveHistoryToHistfile();
 std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
 void runBuiltin(const std::vector<std::string> &tokens);
 std::vector<std::string> split(const std::string &str, char delimiter);
@@ -233,6 +234,7 @@ int main()
 
 		if (command == "exit")
 		{
+			saveHistoryToHistfile();
 			return 0;
 		}
 		else if (command == "cd")
@@ -826,4 +828,20 @@ void loadHistoryFromFile()
 	}
 
 	historyWrittenCount = commandHistory.size();
+}
+
+void saveHistoryToHistfile()
+{
+	const char *histfile = std::getenv("HISTFILE");
+	if (!histfile)
+		return;
+
+	std::ofstream file(histfile, std::ios::trunc);
+	if (!file.is_open())
+		return;
+
+	for (const auto &entry : commandHistory)
+	{
+		file << entry << '\n';
+	}
 }
