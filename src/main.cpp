@@ -13,6 +13,8 @@ struct Redirection
 {
 	bool redirectStdout = false;
 	bool redirectStderr = false;
+	bool appendStdout = false;
+
 	std::string stdoutFile;
 	std::string stderrFile;
 };
@@ -122,11 +124,12 @@ int main()
 			{
 				if (redir.redirectStdout)
 				{
-					int fd = open(
-						redir.stdoutFile.c_str(),
-						O_WRONLY | O_CREAT | O_TRUNC,
-						0644);
-
+					int flags = O_WRONLY | O_CREAT;
+					if (redir.appendStdout)
+						flags |= O_APPEND;
+					else
+						flags |= O_TRUNC;
+					int fd = open(redir.stdoutFile.c_str(), flags, 0644);
 					if (fd == -1)
 					{
 						perror("open");
@@ -331,6 +334,14 @@ Redirection parseRedirection(std::vector<std::string> &tokens)
 		if ((tokens[i] == ">" || tokens[i] == "1>") && i + 1 < tokens.size())
 		{
 			r.redirectStdout = true;
+			r.appendStdout = false;
+			r.stdoutFile = tokens[i + 1];
+			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
+		}
+		else if ((tokens[i] == ">>" || tokens[i] == "1>>") && i + 1 < tokens.size())
+		{
+			r.redirectStdout = true;
+			r.appendStdout = true;
 			r.stdoutFile = tokens[i + 1];
 			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
 		}
@@ -354,23 +365,26 @@ int applyStdoutRedirection(const Redirection &r)
 	if (!r.redirectStdout)
 		return -1;
 
-	int fd = open(
-		r.stdoutFile.c_str(),
-		O_WRONLY | O_CREAT | O_TRUNC,
-		0644);
+	int flags = O_WRONLY | O_CREAT;
+	if (r.appendStdout)
+		flags |= O_APPEND;
+	else
+		flags |= O_TRUNC;
 
+	int fd = open(r.stdoutFile.c_str(), flags, 0644);
 	if (fd == -1)
 	{
 		perror("open");
 		return -1;
 	}
 
-	int savedStdout = dup(STDOUT_FILENO);
+	int saved = dup(STDOUT_FILENO);
 	dup2(fd, STDOUT_FILENO);
 	close(fd);
 
-	return savedStdout;
+	return saved;
 }
+
 void restoreStdout(int saved)
 {
 	if (saved != -1)
