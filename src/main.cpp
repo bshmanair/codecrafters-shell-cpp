@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 struct Redirection
 {
@@ -63,11 +65,17 @@ int main()
 	std::string input;
 	while (true)
 	{
-		std::cout << "$ ";
-		if (!std::getline(std::cin, input))
+		char *line = readline("$ ");
+		if (!line)
 			break;
+		std::string input(line);
+		free(line);
+
 		if (!input.empty())
+		{
+			add_history(input.c_str());
 			commandHistory.push_back(input);
+		}
 
 		// Tokenize first
 		std::vector<std::string> tokens = tokenize(input);
