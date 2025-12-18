@@ -13,7 +13,9 @@ struct Redirection
 {
 	bool redirectStdout = false;
 	bool redirectStderr = false;
+
 	bool appendStdout = false;
+	bool appendStderr = false;
 
 	std::string stdoutFile;
 	std::string stderrFile;
@@ -140,11 +142,13 @@ int main()
 				}
 				if (redir.redirectStderr)
 				{
-					int fd = open(
-						redir.stderrFile.c_str(),
-						O_WRONLY | O_CREAT | O_TRUNC,
-						0644);
+					int flags = O_WRONLY | O_CREAT;
+					if (redir.appendStderr)
+						flags |= O_APPEND;
+					else
+						flags |= O_TRUNC;
 
+					int fd = open(redir.stderrFile.c_str(), flags, 0644);
 					if (fd == -1)
 					{
 						perror("open");
@@ -348,6 +352,14 @@ Redirection parseRedirection(std::vector<std::string> &tokens)
 		else if (tokens[i] == "2>" && i + 1 < tokens.size())
 		{
 			r.redirectStderr = true;
+			r.appendStderr = false;
+			r.stderrFile = tokens[i + 1];
+			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
+		}
+		else if (tokens[i] == "2>>" && i + 1 < tokens.size())
+		{
+			r.redirectStderr = true;
+			r.appendStderr = true;
 			r.stderrFile = tokens[i + 1];
 			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
 		}
@@ -399,11 +411,13 @@ int applyStderrRedirection(const Redirection &r)
 	if (!r.redirectStderr)
 		return -1;
 
-	int fd = open(
-		r.stderrFile.c_str(),
-		O_WRONLY | O_CREAT | O_TRUNC,
-		0644);
+	int flags = O_WRONLY | O_CREAT;
+	if (r.appendStderr)
+		flags |= O_APPEND;
+	else
+		flags |= O_TRUNC;
 
+	int fd = open(r.stderrFile.c_str(), flags, 0644);
 	if (fd == -1)
 	{
 		perror("open");
@@ -416,6 +430,7 @@ int applyStderrRedirection(const Redirection &r)
 
 	return saved;
 }
+
 void restoreStderr(int saved)
 {
 	if (saved != -1)
