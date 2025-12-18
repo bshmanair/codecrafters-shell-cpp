@@ -31,6 +31,7 @@ char separator = ':';
 #endif
 
 // --- Forward decls ---
+std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
 void runBuiltin(const std::vector<std::string> &tokens);
 std::vector<std::string> split(const std::string &str, char delimiter);
 bool isExecutable(const std::filesystem::path &p);
@@ -77,177 +78,121 @@ int main()
 		// ---------------- Pipeline path (two external commands) ----------------
 		if (hasPipe)
 		{
-			std::vector<std::string> leftTokens(tokens.begin(), pipeIt);
-			std::vector<std::string> rightTokens(pipeIt + 1, tokens.end());
+			auto commands = splitByPipe(tokens);
 
-			if (leftTokens.empty() || rightTokens.empty())
+			bool invalid = false;
+			for (const auto &cmd : commands)
 			{
-				std::cerr << "invalid pipeline" << std::endl;
-				continue;
-			}
-
-			// Parse redirections per side
-			Redirection leftRedir = parseRedirection(leftTokens);
-			Redirection rightRedir = parseRedirection(rightTokens);
-
-			// Only external commands for pipelines in this stage
-			if (leftTokens.empty() || rightTokens.empty())
-			{
-				std::cerr << "invalid pipeline" << std::endl;
-				continue;
-			}
-
-			// Resolve executables only if NOT builtin
-			if (!builtin.count(leftTokens[0]) && !searchExecutable(leftTokens[0]))
-			{
-				std::cout << leftTokens[0] << ": not found" << std::endl;
-				continue;
-			}
-			if (!builtin.count(rightTokens[0]) && !searchExecutable(rightTokens[0]))
-			{
-				std::cout << rightTokens[0] << ": not found" << std::endl;
-				continue;
-			}
-
-			int pipefd[2];
-			if (pipe(pipefd) == -1)
-			{
-				perror("pipe");
-				continue;
-			}
-
-			pid_t leftPid = fork();
-			if (leftPid == -1)
-			{
-				perror("fork");
-				close(pipefd[0]);
-				close(pipefd[1]);
-				continue;
-			}
-
-			if (leftPid == 0)
-			{
-				// LEFT CHILD: stdout -> pipe (unless stdout redirected), stderr redirection allowed
-				if (!leftRedir.redirectStdout)
+				if (cmd.empty())
 				{
-					dup2(pipefd[1], STDOUT_FILENO);
+					std::cerr << "invalid pipeline" << std::endl;
+					invalid = true;
+					break;
 				}
-				close(pipefd[0]);
-				close(pipefd[1]);
+			}
+			if (invalid)
+				continue;
 
-				// Apply stderr redirection if requested
-				if (leftRedir.redirectStderr)
+			int numCmds = commands.size();
+			std::vector<pid_t> pids;
+			std::vector<int> pipefds;
+
+			// Create N-1 pipes
+			for (int i = 0; i < numCmds - 1; i++)
+			{
+				int fd[2];
+				if (pipe(fd) == -1)
 				{
-					int flags = O_WRONLY | O_CREAT | (leftRedir.appendStderr ? O_APPEND : O_TRUNC);
-					int fd = open(leftRedir.stderrFile.c_str(), flags, 0644);
-					if (fd == -1)
-					{
-						perror("open");
-						std::exit(1);
-					}
-					dup2(fd, STDERR_FILENO);
+					perror("pipe");
+					invalid = true;
+					break;
+				}
+				pipefds.push_back(fd[0]);
+				pipefds.push_back(fd[1]);
+			}
+
+			if (invalid)
+			{
+				for (int fd : pipefds)
 					close(fd);
-				}
-
-				// Apply stdout redirection if requested (overrides pipe)
-				if (leftRedir.redirectStdout)
-				{
-					int flags = O_WRONLY | O_CREAT | (leftRedir.appendStdout ? O_APPEND : O_TRUNC);
-					int fd = open(leftRedir.stdoutFile.c_str(), flags, 0644);
-					if (fd == -1)
-					{
-						perror("open");
-						std::exit(1);
-					}
-					dup2(fd, STDOUT_FILENO);
-					close(fd);
-				}
-
-				if (builtin.count(leftTokens[0]))
-				{
-					runBuiltin(leftTokens);
-					std::exit(0);
-				}
-				else
-				{
-					auto argv = makeArgv(leftTokens);
-					execvp(argv[0], argv.data());
-					perror("execvp");
-					std::exit(1);
-				}
-
-				perror("execvp");
-				std::exit(1);
-			}
-
-			pid_t rightPid = fork();
-			if (rightPid == -1)
-			{
-				perror("fork");
-				close(pipefd[0]);
-				close(pipefd[1]);
-				waitpid(leftPid, nullptr, 0);
 				continue;
 			}
 
-			if (rightPid == 0)
+			for (int i = 0; i < numCmds; i++)
 			{
-				// RIGHT CHILD: stdin <- pipe, stdout normal (unless redirected), stderr redirection allowed
-				dup2(pipefd[0], STDIN_FILENO);
-				close(pipefd[1]);
-				close(pipefd[0]);
+				Redirection redir = parseRedirection(commands[i]);
 
-				// Apply stderr redirection if requested
-				if (rightRedir.redirectStderr)
+				if (!builtin.count(commands[i][0]) &&
+					!searchExecutable(commands[i][0]))
 				{
-					int flags = O_WRONLY | O_CREAT | (rightRedir.appendStderr ? O_APPEND : O_TRUNC);
-					int fd = open(rightRedir.stderrFile.c_str(), flags, 0644);
-					if (fd == -1)
+					std::cout << commands[i][0] << ": not found" << std::endl;
+					invalid = true;
+					break;
+				}
+
+				pid_t pid = fork();
+				if (pid == -1)
+				{
+					perror("fork");
+					invalid = true;
+					break;
+				}
+
+				if (pid == 0)
+				{
+					// stdin
+					if (i > 0)
+						dup2(pipefds[(i - 1) * 2], STDIN_FILENO);
+
+					// stdout
+					if (i < numCmds - 1)
+						dup2(pipefds[i * 2 + 1], STDOUT_FILENO);
+
+					// close all pipe fds
+					for (int fd : pipefds)
+						close(fd);
+
+					// redirections
+					if (redir.redirectStdout)
 					{
-						perror("open");
-						std::exit(1);
+						int flags = O_WRONLY | O_CREAT | (redir.appendStdout ? O_APPEND : O_TRUNC);
+						int fd = open(redir.stdoutFile.c_str(), flags, 0644);
+						dup2(fd, STDOUT_FILENO);
+						close(fd);
 					}
-					dup2(fd, STDERR_FILENO);
-					close(fd);
-				}
 
-				// Apply stdout redirection if requested
-				if (rightRedir.redirectStdout)
-				{
-					int flags = O_WRONLY | O_CREAT | (rightRedir.appendStdout ? O_APPEND : O_TRUNC);
-					int fd = open(rightRedir.stdoutFile.c_str(), flags, 0644);
-					if (fd == -1)
+					if (redir.redirectStderr)
 					{
-						perror("open");
-						std::exit(1);
+						int flags = O_WRONLY | O_CREAT | (redir.appendStderr ? O_APPEND : O_TRUNC);
+						int fd = open(redir.stderrFile.c_str(), flags, 0644);
+						dup2(fd, STDERR_FILENO);
+						close(fd);
 					}
-					dup2(fd, STDOUT_FILENO);
-					close(fd);
+
+					if (builtin.count(commands[i][0]))
+					{
+						runBuiltin(commands[i]);
+						_exit(0);
+					}
+					else
+					{
+						auto argv = makeArgv(commands[i]);
+						execvp(argv[0], argv.data());
+						perror("execvp");
+						_exit(1);
+					}
 				}
 
-				if (builtin.count(rightTokens[0]))
-				{
-					runBuiltin(rightTokens);
-					std::exit(0);
-				}
-				else
-				{
-					auto argv = makeArgv(rightTokens);
-					execvp(argv[0], argv.data());
-					perror("execvp");
-					std::exit(1);
-				}
-
-				perror("execvp");
-				std::exit(1);
+				pids.push_back(pid);
 			}
 
-			// PARENT
-			close(pipefd[0]);
-			close(pipefd[1]);
+			// Parent cleanup
+			for (int fd : pipefds)
+				close(fd);
 
-			waitpid(leftPid, nullptr, 0);
-			waitpid(rightPid, nullptr, 0);
+			for (pid_t pid : pids)
+				waitpid(pid, nullptr, 0);
+
 			continue;
 		}
 
@@ -672,4 +617,19 @@ void runBuiltin(const std::vector<std::string> &tokens)
 	{
 		std::cout << std::filesystem::current_path().string() << std::endl;
 	}
+}
+std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens)
+{
+	std::vector<std::vector<std::string>> cmds;
+	cmds.emplace_back();
+
+	for (const auto &t : tokens)
+	{
+		if (t == "|")
+			cmds.emplace_back();
+		else
+			cmds.back().push_back(t);
+	}
+
+	return cmds;
 }
