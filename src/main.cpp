@@ -9,7 +9,11 @@
 #include <sys/wait.h>
 #include <optional>
 
-struct Redirection;
+struct Redirection
+{
+	bool redirectStdout = false;
+	std::string file;
+};
 std::vector<std::string> split(const std::string &str, const char delimiter);
 bool isExecutable(const std::filesystem::path &p);
 std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
@@ -295,11 +299,6 @@ std::vector<std::string> tokenize(const std::string &input)
 
 	return tokens;
 }
-struct Redirection
-{
-	bool redirectStdout = false;
-	std::string file;
-};
 Redirection parseRedirection(std::vector<std::string> &tokens)
 {
 	Redirection r;
