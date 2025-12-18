@@ -8,6 +8,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <optional>
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 struct Redirection
 {
@@ -20,15 +23,6 @@ struct Redirection
 	std::string stdoutFile;
 	std::string stderrFile;
 };
-void restoreStderr(int saved);
-int applyStderrRedirection(const Redirection &r);
-std::vector<std::string> split(const std::string &str, const char delimiter);
-bool isExecutable(const std::filesystem::path &p);
-std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
-std::vector<std::string> tokenize(const std::string &input);
-Redirection parseRedirection(std::vector<std::string> &tokens);
-int applyStdoutRedirection(const Redirection &r);
-void restoreStdout(int saved);
 
 #if _WIN32
 char separator = ';';
@@ -36,40 +30,236 @@ char separator = ';';
 char separator = ':';
 #endif
 
-const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
-const char *path = std::getenv("PATH");
-std::vector<std::string> dirs = split(path, separator);
+// --- Forward decls ---
+std::vector<std::string> split(const std::string &str, char delimiter);
+bool isExecutable(const std::filesystem::path &p);
+std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
+std::vector<std::string> tokenize(const std::string &input);
 
+Redirection parseRedirection(std::vector<std::string> &tokens);
+
+int applyStdoutRedirection(const Redirection &r);
+int applyStderrRedirection(const Redirection &r);
+void restoreStdout(int saved);
+void restoreStderr(int saved);
+
+std::vector<char *> makeArgv(const std::vector<std::string> &tokens);
+
+// Builtins
+const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
+
+const char *pathEnv = std::getenv("PATH");
+std::vector<std::string> dirs = split(pathEnv ? pathEnv : "", separator);
+
+// ---------------- main ----------------
 int main()
 {
-	// Flush after every std::cout / std:cerr
 	std::cout << std::unitbuf;
 	std::cerr << std::unitbuf;
+
 	std::string input;
-	do
+	while (true)
 	{
 		std::cout << "$ ";
-		std::getline(std::cin, input);
+		if (!std::getline(std::cin, input))
+			break;
+
+		// Tokenize first
 		std::vector<std::string> tokens = tokenize(input);
+		if (tokens.empty())
+			continue;
+
+		// Detect pipe BEFORE stripping redirections (so we can parse per-side)
+		auto pipeIt = std::find(tokens.begin(), tokens.end(), "|");
+		bool hasPipe = (pipeIt != tokens.end());
+
+		// ---------------- Pipeline path (two external commands) ----------------
+		if (hasPipe)
+		{
+			std::vector<std::string> leftTokens(tokens.begin(), pipeIt);
+			std::vector<std::string> rightTokens(pipeIt + 1, tokens.end());
+
+			if (leftTokens.empty() || rightTokens.empty())
+			{
+				std::cerr << "invalid pipeline" << std::endl;
+				continue;
+			}
+
+			// Parse redirections per side
+			Redirection leftRedir = parseRedirection(leftTokens);
+			Redirection rightRedir = parseRedirection(rightTokens);
+
+			// Only external commands for pipelines in this stage
+			if (leftTokens.empty() || rightTokens.empty())
+			{
+				std::cerr << "invalid pipeline" << std::endl;
+				continue;
+			}
+
+			// Reject builtins in pipeline (not required this stage; keeps behavior predictable)
+			if (builtin.count(leftTokens[0]) || builtin.count(rightTokens[0]))
+			{
+				std::cerr << "pipeline with builtins not supported" << std::endl;
+				continue;
+			}
+
+			// Resolve executables (optional but gives nicer errors)
+			if (!searchExecutable(leftTokens[0]))
+			{
+				std::cout << leftTokens[0] << ": not found" << std::endl;
+				continue;
+			}
+			if (!searchExecutable(rightTokens[0]))
+			{
+				std::cout << rightTokens[0] << ": not found" << std::endl;
+				continue;
+			}
+
+			int pipefd[2];
+			if (pipe(pipefd) == -1)
+			{
+				perror("pipe");
+				continue;
+			}
+
+			pid_t leftPid = fork();
+			if (leftPid == -1)
+			{
+				perror("fork");
+				close(pipefd[0]);
+				close(pipefd[1]);
+				continue;
+			}
+
+			if (leftPid == 0)
+			{
+				// LEFT CHILD: stdout -> pipe (unless stdout redirected), stderr redirection allowed
+				if (!leftRedir.redirectStdout)
+				{
+					dup2(pipefd[1], STDOUT_FILENO);
+				}
+				close(pipefd[0]);
+				close(pipefd[1]);
+
+				// Apply stderr redirection if requested
+				if (leftRedir.redirectStderr)
+				{
+					int flags = O_WRONLY | O_CREAT | (leftRedir.appendStderr ? O_APPEND : O_TRUNC);
+					int fd = open(leftRedir.stderrFile.c_str(), flags, 0644);
+					if (fd == -1)
+					{
+						perror("open");
+						std::exit(1);
+					}
+					dup2(fd, STDERR_FILENO);
+					close(fd);
+				}
+
+				// Apply stdout redirection if requested (overrides pipe)
+				if (leftRedir.redirectStdout)
+				{
+					int flags = O_WRONLY | O_CREAT | (leftRedir.appendStdout ? O_APPEND : O_TRUNC);
+					int fd = open(leftRedir.stdoutFile.c_str(), flags, 0644);
+					if (fd == -1)
+					{
+						perror("open");
+						std::exit(1);
+					}
+					dup2(fd, STDOUT_FILENO);
+					close(fd);
+				}
+
+				auto argv = makeArgv(leftTokens);
+				execvp(argv[0], argv.data());
+				perror("execvp");
+				std::exit(1);
+			}
+
+			pid_t rightPid = fork();
+			if (rightPid == -1)
+			{
+				perror("fork");
+				close(pipefd[0]);
+				close(pipefd[1]);
+				waitpid(leftPid, nullptr, 0);
+				continue;
+			}
+
+			if (rightPid == 0)
+			{
+				// RIGHT CHILD: stdin <- pipe, stdout normal (unless redirected), stderr redirection allowed
+				dup2(pipefd[0], STDIN_FILENO);
+				close(pipefd[1]);
+				close(pipefd[0]);
+
+				// Apply stderr redirection if requested
+				if (rightRedir.redirectStderr)
+				{
+					int flags = O_WRONLY | O_CREAT | (rightRedir.appendStderr ? O_APPEND : O_TRUNC);
+					int fd = open(rightRedir.stderrFile.c_str(), flags, 0644);
+					if (fd == -1)
+					{
+						perror("open");
+						std::exit(1);
+					}
+					dup2(fd, STDERR_FILENO);
+					close(fd);
+				}
+
+				// Apply stdout redirection if requested
+				if (rightRedir.redirectStdout)
+				{
+					int flags = O_WRONLY | O_CREAT | (rightRedir.appendStdout ? O_APPEND : O_TRUNC);
+					int fd = open(rightRedir.stdoutFile.c_str(), flags, 0644);
+					if (fd == -1)
+					{
+						perror("open");
+						std::exit(1);
+					}
+					dup2(fd, STDOUT_FILENO);
+					close(fd);
+				}
+
+				auto argv = makeArgv(rightTokens);
+				execvp(argv[0], argv.data());
+				perror("execvp");
+				std::exit(1);
+			}
+
+			// PARENT
+			close(pipefd[0]);
+			close(pipefd[1]);
+
+			waitpid(leftPid, nullptr, 0);
+			waitpid(rightPid, nullptr, 0);
+			continue;
+		}
+
+		// ---------------- Non-pipeline path ----------------
 		Redirection redir = parseRedirection(tokens);
+		if (tokens.empty())
+			continue;
+
 		std::string command = tokens.at(0);
+
 		if (command == "exit")
 		{
 			return 0;
 		}
 		else if (command == "cd")
 		{
-			// get target folder. if user doesn't input a 2nd argument, assume HOME
 			const char *targetFolder;
-			if (tokens.size() == 1 || (tokens.size() == 2 && (tokens.at(1) == "~")))
+			if (tokens.size() == 1 || (tokens.size() == 2 && tokens.at(1) == "~"))
 				targetFolder = std::getenv("HOME");
 			else
 				targetFolder = tokens.at(1).c_str();
-			if (!std::filesystem::exists(targetFolder) || !std::filesystem::is_directory(targetFolder))
+
+			if (!targetFolder || !std::filesystem::exists(targetFolder) || !std::filesystem::is_directory(targetFolder))
 			{
-				std::cout << targetFolder << ": No such file or directory" << std::endl;
+				std::cout << (targetFolder ? targetFolder : "") << ": No such file or directory" << std::endl;
 				continue;
 			}
+
 			if (chdir(targetFolder) == -1)
 			{
 				std::cerr << "chdir() error: " << targetFolder << std::endl;
@@ -82,55 +272,79 @@ int main()
 			int savedErr = applyStderrRedirection(redir);
 
 			for (size_t i = 1; i < tokens.size(); i++)
-				std::cout << tokens.at(i) << " ";
+			{
+				std::cout << tokens.at(i);
+				if (i + 1 < tokens.size())
+					std::cout << " ";
+			}
 			std::cout << std::endl;
+
 			restoreStdout(savedOut);
 			restoreStderr(savedErr);
 		}
 		else if (command == "type")
 		{
-			std::string file = tokens.at(1);
-			// See if it's a builtin
-			if (builtin.find(file) != builtin.end())
+			int savedOut = applyStdoutRedirection(redir);
+			int savedErr = applyStderrRedirection(redir);
+
+			if (tokens.size() < 2)
 			{
-				std::cout << tokens.at(1) << " is a shell builtin" << std::endl;
+				restoreStdout(savedOut);
+				restoreStderr(savedErr);
 				continue;
 			}
 
-			// Check if it's an executable
-			auto filePath = searchExecutable(file);
-			if (filePath)
-				std::cout << file << " is " << filePath->string() << std::endl;
+			std::string file = tokens.at(1);
+
+			if (builtin.find(file) != builtin.end())
+			{
+				std::cout << file << " is a shell builtin" << std::endl;
+			}
 			else
-				std::cout << file << ": not found" << std::endl;
+			{
+				auto filePath = searchExecutable(file);
+				if (filePath)
+					std::cout << file << " is " << filePath->string() << std::endl;
+				else
+					std::cout << file << ": not found" << std::endl;
+			}
+
+			restoreStdout(savedOut);
+			restoreStderr(savedErr);
 		}
-		else if (command == "pwd") // argument length check needed
+		else if (command == "pwd")
 		{
+			int savedOut = applyStdoutRedirection(redir);
+			int savedErr = applyStderrRedirection(redir);
+
 			std::cout << std::filesystem::current_path().string() << std::endl;
+
+			restoreStdout(savedOut);
+			restoreStderr(savedErr);
 		}
 		else
 		{
-			std::vector<char *> args;
-			for (size_t i = 0; i < tokens.size(); i++)
-				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
-			args.push_back(nullptr);
-
+			// External command
 			auto execPath = searchExecutable(command);
 			if (!execPath)
 			{
 				std::cout << command << ": not found" << std::endl;
 				continue;
 			}
+
 			pid_t processID = fork();
+			if (processID == -1)
+			{
+				perror("fork");
+				continue;
+			}
+
 			if (processID == 0)
 			{
+				// stdout redirection
 				if (redir.redirectStdout)
 				{
-					int flags = O_WRONLY | O_CREAT;
-					if (redir.appendStdout)
-						flags |= O_APPEND;
-					else
-						flags |= O_TRUNC;
+					int flags = O_WRONLY | O_CREAT | (redir.appendStdout ? O_APPEND : O_TRUNC);
 					int fd = open(redir.stdoutFile.c_str(), flags, 0644);
 					if (fd == -1)
 					{
@@ -140,39 +354,37 @@ int main()
 					dup2(fd, STDOUT_FILENO);
 					close(fd);
 				}
+
+				// stderr redirection
 				if (redir.redirectStderr)
 				{
-					int flags = O_WRONLY | O_CREAT;
-					if (redir.appendStderr)
-						flags |= O_APPEND;
-					else
-						flags |= O_TRUNC;
-
+					int flags = O_WRONLY | O_CREAT | (redir.appendStderr ? O_APPEND : O_TRUNC);
 					int fd = open(redir.stderrFile.c_str(), flags, 0644);
 					if (fd == -1)
 					{
 						perror("open");
 						std::exit(1);
 					}
-
 					dup2(fd, STDERR_FILENO);
 					close(fd);
 				}
 
-				execvp(args[0], args.data());
-				std::cerr << "execvp failed" << std::endl;
+				auto argv = makeArgv(tokens);
+				execvp(argv[0], argv.data());
+				perror("execvp");
 				std::exit(1);
 			}
 			else
 			{
-				int status;
-				waitpid(processID, &status, 0);
+				waitpid(processID, nullptr, 0);
 			}
 		}
-	} while (true);
+	}
 
-	return 1; // program must not get here
+	return 0;
 }
+
+// ---------------- Helpers ----------------
 
 std::vector<std::string> split(const std::string &str, char delimiter)
 {
@@ -204,26 +416,6 @@ std::optional<std::filesystem::path> searchExecutable(const std::string &filenam
 	return std::nullopt;
 }
 
-/*
-Tokenizer algorithm:
-===================
-
-There would be 3 states: normal state, single quote state and double quote state.
-
-In normal state,
-- if single quote detected, switch to single quote state
-- if double quote, double quote state
-- append any other character LITERALLY
-
-In single quote state,
-- if a single quote is detected, go back to normal state
-- append any other character LITERALLY
-
-In double quote state,
-- if double quote detected, go back to normal state
-- append any other character LITERALLY
-
-*/
 std::vector<std::string> tokenize(const std::string &input)
 {
 	std::vector<std::string> tokens;
@@ -247,13 +439,10 @@ std::vector<std::string> tokenize(const std::string &input)
 		case NORMAL:
 			if (c == '\\')
 			{
-				// Escape next character literally
 				if (i + 1 < input.size())
-				{
 					current.push_back(input[++i]);
-				}
 			}
-			else if (std::isspace(c))
+			else if (std::isspace(static_cast<unsigned char>(c)))
 			{
 				if (!current.empty())
 				{
@@ -276,21 +465,15 @@ std::vector<std::string> tokenize(const std::string &input)
 			break;
 
 		case IN_SINGLE:
-			// Everything is literal
 			if (c == '\'')
-			{
 				state = NORMAL;
-			}
 			else
-			{
 				current.push_back(c);
-			}
 			break;
 
 		case IN_DOUBLE:
 			if (c == '\\')
 			{
-				// Only \" and \\ are escaped in this stage
 				if (i + 1 < input.size())
 				{
 					char next = input[i + 1];
@@ -301,7 +484,6 @@ std::vector<std::string> tokenize(const std::string &input)
 					}
 					else
 					{
-						// Backslash is literal for all other characters
 						current.push_back('\\');
 					}
 				}
@@ -323,12 +505,11 @@ std::vector<std::string> tokenize(const std::string &input)
 	}
 
 	if (!current.empty())
-	{
 		tokens.push_back(current);
-	}
 
 	return tokens;
 }
+
 Redirection parseRedirection(std::vector<std::string> &tokens)
 {
 	Redirection r;
@@ -377,12 +558,7 @@ int applyStdoutRedirection(const Redirection &r)
 	if (!r.redirectStdout)
 		return -1;
 
-	int flags = O_WRONLY | O_CREAT;
-	if (r.appendStdout)
-		flags |= O_APPEND;
-	else
-		flags |= O_TRUNC;
-
+	int flags = O_WRONLY | O_CREAT | (r.appendStdout ? O_APPEND : O_TRUNC);
 	int fd = open(r.stdoutFile.c_str(), flags, 0644);
 	if (fd == -1)
 	{
@@ -393,7 +569,25 @@ int applyStdoutRedirection(const Redirection &r)
 	int saved = dup(STDOUT_FILENO);
 	dup2(fd, STDOUT_FILENO);
 	close(fd);
+	return saved;
+}
 
+int applyStderrRedirection(const Redirection &r)
+{
+	if (!r.redirectStderr)
+		return -1;
+
+	int flags = O_WRONLY | O_CREAT | (r.appendStderr ? O_APPEND : O_TRUNC);
+	int fd = open(r.stderrFile.c_str(), flags, 0644);
+	if (fd == -1)
+	{
+		perror("open");
+		return -1;
+	}
+
+	int saved = dup(STDERR_FILENO);
+	dup2(fd, STDERR_FILENO);
+	close(fd);
 	return saved;
 }
 
@@ -406,31 +600,6 @@ void restoreStdout(int saved)
 	}
 }
 
-int applyStderrRedirection(const Redirection &r)
-{
-	if (!r.redirectStderr)
-		return -1;
-
-	int flags = O_WRONLY | O_CREAT;
-	if (r.appendStderr)
-		flags |= O_APPEND;
-	else
-		flags |= O_TRUNC;
-
-	int fd = open(r.stderrFile.c_str(), flags, 0644);
-	if (fd == -1)
-	{
-		perror("open");
-		return -1;
-	}
-
-	int saved = dup(STDERR_FILENO);
-	dup2(fd, STDERR_FILENO);
-	close(fd);
-
-	return saved;
-}
-
 void restoreStderr(int saved)
 {
 	if (saved != -1)
@@ -438,4 +607,14 @@ void restoreStderr(int saved)
 		dup2(saved, STDERR_FILENO);
 		close(saved);
 	}
+}
+
+std::vector<char *> makeArgv(const std::vector<std::string> &tokens)
+{
+	std::vector<char *> argv;
+	argv.reserve(tokens.size() + 1);
+	for (const auto &t : tokens)
+		argv.push_back(const_cast<char *>(t.c_str()));
+	argv.push_back(nullptr);
+	return argv;
 }
