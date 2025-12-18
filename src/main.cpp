@@ -34,7 +34,9 @@ char separator = ':';
 #endif
 
 void loadHistoryFromFile();
+void appendHistoryOnExit();
 void saveHistoryToHistfile();
+
 std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
 void runBuiltin(const std::vector<std::string> &tokens);
 std::vector<std::string> split(const std::string &str, char delimiter);
@@ -234,7 +236,7 @@ int main()
 
 		if (command == "exit")
 		{
-			saveHistoryToHistfile();
+			appendHistoryOnExit();
 			return 0;
 		}
 		else if (command == "cd")
@@ -844,4 +846,22 @@ void saveHistoryToHistfile()
 	{
 		file << entry << '\n';
 	}
+}
+
+void appendHistoryOnExit()
+{
+	const char *histfile = std::getenv("HISTFILE");
+	if (!histfile)
+		return;
+
+	std::ofstream file(histfile, std::ios::app);
+	if (!file.is_open())
+		return;
+
+	for (size_t i = historyWrittenCount; i < commandHistory.size(); ++i)
+	{
+		file << commandHistory[i] << '\n';
+	}
+
+	historyWrittenCount = commandHistory.size();
 }
