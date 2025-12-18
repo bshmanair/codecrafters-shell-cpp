@@ -31,6 +31,7 @@ char separator = ':';
 #endif
 
 // --- Forward decls ---
+void runBuiltin(const std::vector<std::string> &tokens);
 std::vector<std::string> split(const std::string &str, char delimiter);
 bool isExecutable(const std::filesystem::path &p);
 std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
@@ -93,13 +94,6 @@ int main()
 			if (leftTokens.empty() || rightTokens.empty())
 			{
 				std::cerr << "invalid pipeline" << std::endl;
-				continue;
-			}
-
-			// Reject builtins in pipeline (not required this stage; keeps behavior predictable)
-			if (builtin.count(leftTokens[0]) || builtin.count(rightTokens[0]))
-			{
-				std::cerr << "pipeline with builtins not supported" << std::endl;
 				continue;
 			}
 
@@ -169,8 +163,19 @@ int main()
 					close(fd);
 				}
 
-				auto argv = makeArgv(leftTokens);
-				execvp(argv[0], argv.data());
+				if (builtin.count(leftTokens[0]))
+				{
+					runBuiltin(leftTokens);
+					std::exit(0);
+				}
+				else
+				{
+					auto argv = makeArgv(leftTokens);
+					execvp(argv[0], argv.data());
+					perror("execvp");
+					std::exit(1);
+				}
+
 				perror("execvp");
 				std::exit(1);
 			}
@@ -220,8 +225,19 @@ int main()
 					close(fd);
 				}
 
-				auto argv = makeArgv(rightTokens);
-				execvp(argv[0], argv.data());
+				if (builtin.count(rightTokens[0]))
+				{
+					runBuiltin(rightTokens);
+					std::exit(0);
+				}
+				else
+				{
+					auto argv = makeArgv(rightTokens);
+					execvp(argv[0], argv.data());
+					perror("execvp");
+					std::exit(1);
+				}
+
 				perror("execvp");
 				std::exit(1);
 			}
@@ -617,4 +633,43 @@ std::vector<char *> makeArgv(const std::vector<std::string> &tokens)
 		argv.push_back(const_cast<char *>(t.c_str()));
 	argv.push_back(nullptr);
 	return argv;
+}
+
+void runBuiltin(const std::vector<std::string> &tokens)
+{
+	const std::string &cmd = tokens[0];
+
+	if (cmd == "echo")
+	{
+		for (size_t i = 1; i < tokens.size(); ++i)
+		{
+			std::cout << tokens[i];
+			if (i + 1 < tokens.size())
+				std::cout << " ";
+		}
+		std::cout << std::endl;
+	}
+	else if (cmd == "type")
+	{
+		if (tokens.size() < 2)
+			return;
+
+		const std::string &arg = tokens[1];
+		if (builtin.count(arg))
+		{
+			std::cout << arg << " is a shell builtin" << std::endl;
+		}
+		else
+		{
+			auto path = searchExecutable(arg);
+			if (path)
+				std::cout << arg << " is " << path->string() << std::endl;
+			else
+				std::cout << arg << ": not found" << std::endl;
+		}
+	}
+	else if (cmd == "pwd")
+	{
+		std::cout << std::filesystem::current_path().string() << std::endl;
+	}
 }
