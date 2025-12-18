@@ -14,6 +14,7 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <fstream>
+#include <cstring>
 
 struct Redirection
 {
@@ -37,6 +38,8 @@ void loadHistoryFromFile();
 void appendHistoryOnExit();
 void saveHistoryToHistfile();
 
+char *builtinGenerator(const char *text, int state);
+char **completionHook(const char *text, int start, int end);
 std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
 void runBuiltin(const std::vector<std::string> &tokens);
 std::vector<std::string> split(const std::string &str, char delimiter);
@@ -55,6 +58,9 @@ std::vector<char *> makeArgv(const std::vector<std::string> &tokens);
 
 // Builtins
 const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd", "history"};
+const std::vector<std::string> builtinCompletions = {
+	"echo",
+	"exit"};
 
 const char *pathEnv = std::getenv("PATH");
 std::vector<std::string> dirs = split(pathEnv ? pathEnv : "", separator);
@@ -68,6 +74,7 @@ int main()
 	std::cerr << std::unitbuf;
 
 	loadHistoryFromFile();
+	rl_attempted_completion_function = completionHook;
 
 	while (true)
 	{
@@ -864,4 +871,39 @@ void appendHistoryOnExit()
 	}
 
 	historyWrittenCount = commandHistory.size();
+}
+
+char *builtinGenerator(const char *text, int state)
+{
+	static size_t index;
+	static size_t len;
+
+	if (state == 0)
+	{
+		index = 0;
+		len = std::strlen(text);
+	}
+
+	while (index < builtinCompletions.size())
+	{
+		const std::string &cmd = builtinCompletions[index++];
+		if (cmd.compare(0, len, text) == 0)
+		{
+			std::string completion = cmd + " ";
+			return strdup(completion.c_str());
+		}
+	}
+
+	return nullptr;
+}
+
+char **completionHook(const char *text, int start, int end)
+{
+	// Only complete the first word (command name)
+	if (start == 0)
+	{
+		return rl_completion_matches(text, builtinGenerator);
+	}
+
+	return nullptr;
 }
