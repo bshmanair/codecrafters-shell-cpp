@@ -48,10 +48,11 @@ void restoreStderr(int saved);
 std::vector<char *> makeArgv(const std::vector<std::string> &tokens);
 
 // Builtins
-const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
+const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd", "history"};
 
 const char *pathEnv = std::getenv("PATH");
 std::vector<std::string> dirs = split(pathEnv ? pathEnv : "", separator);
+std::vector<std::string> commandHistory;
 
 // ---------------- main ----------------
 int main()
@@ -65,6 +66,8 @@ int main()
 		std::cout << "$ ";
 		if (!std::getline(std::cin, input))
 			break;
+		if (!input.empty())
+			commandHistory.push_back(input);
 
 		// Tokenize first
 		std::vector<std::string> tokens = tokenize(input);
@@ -594,6 +597,14 @@ void runBuiltin(const std::vector<std::string> &tokens)
 		}
 		std::cout << std::endl;
 	}
+	else if (cmd == "history")
+	{
+		for (size_t i = 0; i < commandHistory.size(); ++i)
+		{
+			std::cout << "    " << (i + 1) << "  " << commandHistory[i] << std::endl;
+		}
+	}
+
 	else if (cmd == "type")
 	{
 		if (tokens.size() < 2)
