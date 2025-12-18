@@ -192,7 +192,7 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 		case NORMAL:
 			if (c == '\\')
 			{
-				// Escape next character literally (if it exists)
+				// Backslash escapes next character ONLY in NORMAL state
 				if (i + 1 < input.size())
 				{
 					current.push_back(input[++i]);
@@ -221,6 +221,7 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 			break;
 
 		case IN_SINGLE:
+			// EVERYTHING is literal inside single quotes
 			if (c == '\'')
 			{
 				state = NORMAL;
