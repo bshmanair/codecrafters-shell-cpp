@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <fstream>
 
 struct Redirection
 {
@@ -617,6 +618,30 @@ void runBuiltin(const std::vector<std::string> &tokens)
 	}
 	else if (cmd == "history")
 	{
+		// history -r <file>
+		if (tokens.size() == 3 && tokens[1] == "-r")
+		{
+			std::ifstream file(tokens[2]);
+			if (!file.is_open())
+			{
+				std::cerr << "history: cannot open file" << std::endl;
+				return;
+			}
+
+			std::string line;
+			while (std::getline(file, line))
+			{
+				if (line.empty())
+					continue;
+
+				commandHistory.push_back(line);
+				add_history(line.c_str());
+			}
+
+			return;
+		}
+
+		// history <n>
 		size_t total = commandHistory.size();
 		size_t start = 0;
 
@@ -626,13 +651,10 @@ void runBuiltin(const std::vector<std::string> &tokens)
 			{
 				int n = std::stoi(tokens[1]);
 				if (n > 0 && static_cast<size_t>(n) < total)
-				{
 					start = total - n;
-				}
 			}
 			catch (...)
 			{
-				// ignore invalid numbers, show full history
 			}
 		}
 
@@ -641,6 +663,7 @@ void runBuiltin(const std::vector<std::string> &tokens)
 			std::cout << "    " << (i + 1) << "  " << commandHistory[i] << std::endl;
 		}
 	}
+
 	else if (cmd == "type")
 	{
 		if (tokens.size() < 2)
