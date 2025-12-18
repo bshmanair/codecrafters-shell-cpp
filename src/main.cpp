@@ -39,6 +39,7 @@ void appendHistoryOnExit();
 void saveHistoryToHistfile();
 
 std::vector<std::string> getExecutablesInPath();
+void displayMatches(char **matches, int num_matches, int max_length);
 char *builtinGenerator(const char *text, int state);
 char **completionHook(const char *text, int start, int end);
 std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string> &tokens);
@@ -76,6 +77,7 @@ int main()
 
 	loadHistoryFromFile();
 	rl_attempted_completion_function = completionHook;
+	rl_completion_display_matches_hook = displayMatches;
 
 	while (true)
 	{
@@ -966,4 +968,27 @@ std::vector<std::string> getExecutablesInPath()
 	}
 
 	return results;
+}
+
+void displayMatches(char **matches, int num_matches, int max_length)
+{
+	// matches[0] is the original text, skip it
+	std::vector<std::string> items;
+	for (int i = 1; i <= num_matches; ++i)
+	{
+		items.emplace_back(matches[i]);
+	}
+
+	std::sort(items.begin(), items.end());
+
+	std::cout << std::endl;
+	for (size_t i = 0; i < items.size(); ++i)
+	{
+		std::cout << items[i];
+		if (i + 1 < items.size())
+		{
+			std::cout << "  "; // two spaces
+		}
+	}
+	std::cout << std::endl;
 }
