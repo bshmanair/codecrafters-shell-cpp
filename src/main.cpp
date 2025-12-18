@@ -12,8 +12,12 @@
 struct Redirection
 {
 	bool redirectStdout = false;
-	std::string file;
+	bool redirectStderr = false;
+	std::string stdoutFile;
+	std::string stderrFile;
 };
+void restoreStderr(int saved);
+int applyStderrRedirection(const Redirection &r);
 std::vector<std::string> split(const std::string &str, const char delimiter);
 bool isExecutable(const std::filesystem::path &p);
 std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
@@ -70,12 +74,14 @@ int main()
 		}
 		else if (command == "echo")
 		{
-			int saved = applyStdoutRedirection(redir);
+			int savedOut = applyStdoutRedirection(redir);
+			int savedErr = applyStderrRedirection(redir);
 
 			for (size_t i = 1; i < tokens.size(); i++)
 				std::cout << tokens.at(i) << " ";
 			std::cout << std::endl;
-			restoreStdout(saved);
+			restoreStdout(savedOut);
+			restoreStderr(savedErr);
 		}
 		else if (command == "type")
 		{
@@ -117,7 +123,7 @@ int main()
 				if (redir.redirectStdout)
 				{
 					int fd = open(
-						redir.file.c_str(),
+						redir.stdoutFile.c_str(),
 						O_WRONLY | O_CREAT | O_TRUNC,
 						0644);
 
@@ -129,6 +135,23 @@ int main()
 					dup2(fd, STDOUT_FILENO);
 					close(fd);
 				}
+				if (redir.redirectStderr)
+				{
+					int fd = open(
+						redir.stderrFile.c_str(),
+						O_WRONLY | O_CREAT | O_TRUNC,
+						0644);
+
+					if (fd == -1)
+					{
+						perror("open");
+						std::exit(1);
+					}
+
+					dup2(fd, STDERR_FILENO);
+					close(fd);
+				}
+
 				execvp(args[0], args.data());
 				std::cerr << "execvp failed" << std::endl;
 				std::exit(1);
@@ -303,31 +326,36 @@ Redirection parseRedirection(std::vector<std::string> &tokens)
 {
 	Redirection r;
 
-	for (size_t i = 0; i < tokens.size(); ++i)
+	for (size_t i = 0; i < tokens.size();)
 	{
-		if (tokens[i] == ">" || tokens[i] == "1>")
+		if ((tokens[i] == ">" || tokens[i] == "1>") && i + 1 < tokens.size())
 		{
-			if (i + 1 >= tokens.size())
-				break;
-
 			r.redirectStdout = true;
-			r.file = tokens[i + 1];
-
-			// Remove operator and filename
+			r.stdoutFile = tokens[i + 1];
 			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
-			break;
+		}
+		else if (tokens[i] == "2>" && i + 1 < tokens.size())
+		{
+			r.redirectStderr = true;
+			r.stderrFile = tokens[i + 1];
+			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
+		}
+		else
+		{
+			++i;
 		}
 	}
 
 	return r;
 }
+
 int applyStdoutRedirection(const Redirection &r)
 {
 	if (!r.redirectStdout)
 		return -1;
 
 	int fd = open(
-		r.file.c_str(),
+		r.stdoutFile.c_str(),
 		O_WRONLY | O_CREAT | O_TRUNC,
 		0644);
 
@@ -348,6 +376,37 @@ void restoreStdout(int saved)
 	if (saved != -1)
 	{
 		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
+}
+
+int applyStderrRedirection(const Redirection &r)
+{
+	if (!r.redirectStderr)
+		return -1;
+
+	int fd = open(
+		r.stderrFile.c_str(),
+		O_WRONLY | O_CREAT | O_TRUNC,
+		0644);
+
+	if (fd == -1)
+	{
+		perror("open");
+		return -1;
+	}
+
+	int saved = dup(STDERR_FILENO);
+	dup2(fd, STDERR_FILENO);
+	close(fd);
+
+	return saved;
+}
+void restoreStderr(int saved)
+{
+	if (saved != -1)
+	{
+		dup2(saved, STDERR_FILENO);
 		close(saved);
 	}
 }
