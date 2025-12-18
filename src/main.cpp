@@ -286,6 +286,16 @@ int main()
 			restoreStdout(savedOut);
 			restoreStderr(savedErr);
 		}
+		else if (command == "history")
+		{
+			int savedOut = applyStdoutRedirection(redir);
+			int savedErr = applyStderrRedirection(redir);
+
+			runBuiltin(tokens);
+
+			restoreStdout(savedOut);
+			restoreStderr(savedErr);
+		}
 		else
 		{
 			// External command
