@@ -609,12 +609,30 @@ void runBuiltin(const std::vector<std::string> &tokens)
 	}
 	else if (cmd == "history")
 	{
-		for (size_t i = 0; i < commandHistory.size(); ++i)
+		size_t total = commandHistory.size();
+		size_t start = 0;
+
+		if (tokens.size() == 2)
+		{
+			try
+			{
+				int n = std::stoi(tokens[1]);
+				if (n > 0 && static_cast<size_t>(n) < total)
+				{
+					start = total - n;
+				}
+			}
+			catch (...)
+			{
+				// ignore invalid numbers, show full history
+			}
+		}
+
+		for (size_t i = start; i < total; ++i)
 		{
 			std::cout << "    " << (i + 1) << "  " << commandHistory[i] << std::endl;
 		}
 	}
-
 	else if (cmd == "type")
 	{
 		if (tokens.size() < 2)
