@@ -182,12 +182,23 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 	};
 
 	State state = NORMAL;
-	for (char c : input)
+
+	for (size_t i = 0; i < input.size(); ++i)
 	{
+		char c = input[i];
+
 		switch (state)
 		{
 		case NORMAL:
-			if (std::isspace(c))
+			if (c == '\\')
+			{
+				// Escape next character literally (if it exists)
+				if (i + 1 < input.size())
+				{
+					current.push_back(input[++i]);
+				}
+			}
+			else if (std::isspace(c))
 			{
 				if (!current.empty())
 				{
@@ -208,6 +219,7 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 				current.push_back(c);
 			}
 			break;
+
 		case IN_SINGLE:
 			if (c == '\'')
 			{
@@ -218,6 +230,7 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 				current.push_back(c);
 			}
 			break;
+
 		case IN_DOUBLE:
 			if (c == '"')
 			{
@@ -230,9 +243,11 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 			break;
 		}
 	}
+
 	if (!current.empty())
 	{
 		tokens.push_back(current);
 	}
+
 	return tokens;
 }
