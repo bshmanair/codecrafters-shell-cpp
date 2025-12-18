@@ -149,29 +149,44 @@ std::optional<std::filesystem::path> Shell::searchExecutable(const std::string &
 	return std::nullopt;
 }
 
+/*
+Tokenizer algorithm:
+===================
+
+There would be 3 states: normal state, single quote state and double quote state.
+
+In normal state,
+- if single quote detected, switch to single quote state
+- if double quote, double quote state
+- append any other character LITERALLY
+
+In single quote state,
+- if a single quote is detected, go back to normal state
+- append any other character LITERALLY
+
+In double quote state,
+- if double quote detected, go back to normal state
+- append any other character LITERALLY
+
+*/
 std::vector<std::string> Shell::tokenize(const std::string &input)
 {
 	std::vector<std::string> tokens;
 	std::string current;
-	bool in_single = false;
 
-	for (size_t i = 0; i < input.size(); ++i)
+	enum State
 	{
-		char c = input.at(i);
+		NORMAL,
+		IN_SINGLE,
+		IN_DOUBLE
+	};
 
-		if (in_single)
+	State state = NORMAL;
+	for (char c : input)
+	{
+		switch (state)
 		{
-			if (c == '\'')
-			{
-				in_single = false;
-			}
-			else
-			{
-				current.push_back(c);
-			}
-		}
-		else
-		{
+		case NORMAL:
 			if (std::isspace(c))
 			{
 				if (!current.empty())
@@ -182,12 +197,37 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 			}
 			else if (c == '\'')
 			{
-				in_single = true;
+				state = IN_SINGLE;
+			}
+			else if (c == '"')
+			{
+				state = IN_DOUBLE;
 			}
 			else
 			{
 				current.push_back(c);
 			}
+			break;
+		case IN_SINGLE:
+			if (c == '\'')
+			{
+				state = NORMAL;
+			}
+			else
+			{
+				current.push_back(c);
+			}
+			break;
+		case IN_DOUBLE:
+			if (c == '"')
+			{
+				state = NORMAL;
+			}
+			else
+			{
+				current.push_back(c);
+			}
+			break;
 		}
 	}
 	if (!current.empty())
