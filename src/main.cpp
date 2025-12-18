@@ -890,8 +890,7 @@ char *builtinGenerator(const char *text, int state)
 		const std::string &cmd = builtinCompletions[index++];
 		if (cmd.compare(0, len, text) == 0)
 		{
-			std::string completion = cmd + " ";
-			return strdup(completion.c_str());
+			return strdup(cmd.c_str());
 		}
 	}
 
