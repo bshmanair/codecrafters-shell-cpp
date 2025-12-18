@@ -56,6 +56,7 @@ const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", 
 const char *pathEnv = std::getenv("PATH");
 std::vector<std::string> dirs = split(pathEnv ? pathEnv : "", separator);
 std::vector<std::string> commandHistory;
+size_t historyWrittenCount = 0;
 
 // ---------------- main ----------------
 int main()
@@ -68,30 +69,29 @@ int main()
 	{
 		char *line = readline("$ ");
 		if (!line)
+		{
 			break;
+		}
 		std::string input(line);
 		free(line);
-
 		if (!input.empty())
 		{
 			add_history(input.c_str());
 			commandHistory.push_back(input);
 		}
-
 		// Tokenize first
 		std::vector<std::string> tokens = tokenize(input);
 		if (tokens.empty())
+		{
 			continue;
-
+		}
 		// Detect pipe BEFORE stripping redirections (so we can parse per-side)
 		auto pipeIt = std::find(tokens.begin(), tokens.end(), "|");
 		bool hasPipe = (pipeIt != tokens.end());
-
 		// ---------------- Pipeline path (two external commands) ----------------
 		if (hasPipe)
 		{
 			auto commands = splitByPipe(tokens);
-
 			bool invalid = false;
 			for (const auto &cmd : commands)
 			{
@@ -103,7 +103,9 @@ int main()
 				}
 			}
 			if (invalid)
+			{
 				continue;
+			}
 
 			int numCmds = commands.size();
 			std::vector<pid_t> pids;
@@ -126,7 +128,9 @@ int main()
 			if (invalid)
 			{
 				for (int fd : pipefds)
+				{
 					close(fd);
+				}
 				continue;
 			}
 
@@ -134,8 +138,7 @@ int main()
 			{
 				Redirection redir = parseRedirection(commands[i]);
 
-				if (!builtin.count(commands[i][0]) &&
-					!searchExecutable(commands[i][0]))
+				if (!builtin.count(commands[i][0]) && !searchExecutable(commands[i][0]))
 				{
 					std::cout << commands[i][0] << ": not found" << std::endl;
 					invalid = true;
@@ -154,15 +157,21 @@ int main()
 				{
 					// stdin
 					if (i > 0)
+					{
 						dup2(pipefds[(i - 1) * 2], STDIN_FILENO);
+					}
 
 					// stdout
 					if (i < numCmds - 1)
+					{
 						dup2(pipefds[i * 2 + 1], STDOUT_FILENO);
+					}
 
 					// close all pipe fds
 					for (int fd : pipefds)
+					{
 						close(fd);
+					}
 
 					// redirections
 					if (redir.redirectStdout)
@@ -200,10 +209,14 @@ int main()
 
 			// Parent cleanup
 			for (int fd : pipefds)
+			{
 				close(fd);
+			}
 
 			for (pid_t pid : pids)
+			{
 				waitpid(pid, nullptr, 0);
+			}
 
 			continue;
 		}
@@ -211,7 +224,9 @@ int main()
 		// ---------------- Non-pipeline path ----------------
 		Redirection redir = parseRedirection(tokens);
 		if (tokens.empty())
+		{
 			continue;
+		}
 
 		std::string command = tokens.at(0);
 
@@ -223,9 +238,13 @@ int main()
 		{
 			const char *targetFolder;
 			if (tokens.size() == 1 || (tokens.size() == 2 && tokens.at(1) == "~"))
+			{
 				targetFolder = std::getenv("HOME");
+			}
 			else
+			{
 				targetFolder = tokens.at(1).c_str();
+			}
 
 			if (!targetFolder || !std::filesystem::exists(targetFolder) || !std::filesystem::is_directory(targetFolder))
 			{
@@ -248,7 +267,9 @@ int main()
 			{
 				std::cout << tokens.at(i);
 				if (i + 1 < tokens.size())
+				{
 					std::cout << " ";
+				}
 			}
 			std::cout << std::endl;
 
@@ -277,9 +298,13 @@ int main()
 			{
 				auto filePath = searchExecutable(file);
 				if (filePath)
+				{
 					std::cout << file << " is " << filePath->string() << std::endl;
+				}
 				else
+				{
 					std::cout << file << ": not found" << std::endl;
+				}
 			}
 
 			restoreStdout(savedOut);
@@ -375,7 +400,9 @@ std::vector<std::string> split(const std::string &str, char delimiter)
 	std::string token;
 	std::vector<std::string> tokens;
 	while (std::getline(ss, token, delimiter))
+	{
 		tokens.push_back(token);
+	}
 	return tokens;
 }
 
@@ -391,10 +418,14 @@ std::optional<std::filesystem::path> searchExecutable(const std::string &filenam
 	for (const auto &dir : dirs)
 	{
 		if (dir.empty())
+		{
 			continue;
+		}
 		std::filesystem::path full = std::filesystem::path(dir) / filename;
 		if (std::filesystem::exists(full) && isExecutable(full))
+		{
 			return full;
+		}
 	}
 	return std::nullopt;
 }
@@ -423,7 +454,9 @@ std::vector<std::string> tokenize(const std::string &input)
 			if (c == '\\')
 			{
 				if (i + 1 < input.size())
+				{
 					current.push_back(input[++i]);
+				}
 			}
 			else if (std::isspace(static_cast<unsigned char>(c)))
 			{
@@ -449,9 +482,13 @@ std::vector<std::string> tokenize(const std::string &input)
 
 		case IN_SINGLE:
 			if (c == '\'')
+			{
 				state = NORMAL;
+			}
 			else
+			{
 				current.push_back(c);
+			}
 			break;
 
 		case IN_DOUBLE:
@@ -488,7 +525,9 @@ std::vector<std::string> tokenize(const std::string &input)
 	}
 
 	if (!current.empty())
+	{
 		tokens.push_back(current);
+	}
 
 	return tokens;
 }
@@ -539,7 +578,9 @@ Redirection parseRedirection(std::vector<std::string> &tokens)
 int applyStdoutRedirection(const Redirection &r)
 {
 	if (!r.redirectStdout)
+	{
 		return -1;
+	}
 
 	int flags = O_WRONLY | O_CREAT | (r.appendStdout ? O_APPEND : O_TRUNC);
 	int fd = open(r.stdoutFile.c_str(), flags, 0644);
@@ -558,7 +599,9 @@ int applyStdoutRedirection(const Redirection &r)
 int applyStderrRedirection(const Redirection &r)
 {
 	if (!r.redirectStderr)
+	{
 		return -1;
+	}
 
 	int flags = O_WRONLY | O_CREAT | (r.appendStderr ? O_APPEND : O_TRUNC);
 	int fd = open(r.stderrFile.c_str(), flags, 0644);
@@ -597,7 +640,9 @@ std::vector<char *> makeArgv(const std::vector<std::string> &tokens)
 	std::vector<char *> argv;
 	argv.reserve(tokens.size() + 1);
 	for (const auto &t : tokens)
+	{
 		argv.push_back(const_cast<char *>(t.c_str()));
+	}
 	argv.push_back(nullptr);
 	return argv;
 }
@@ -612,7 +657,9 @@ void runBuiltin(const std::vector<std::string> &tokens)
 		{
 			std::cout << tokens[i];
 			if (i + 1 < tokens.size())
+			{
 				std::cout << " ";
+			}
 		}
 		std::cout << std::endl;
 	}
@@ -632,7 +679,9 @@ void runBuiltin(const std::vector<std::string> &tokens)
 			while (std::getline(file, line))
 			{
 				if (line.empty())
+				{
 					continue;
+				}
 
 				commandHistory.push_back(line);
 				add_history(line.c_str());
@@ -660,6 +709,26 @@ void runBuiltin(const std::vector<std::string> &tokens)
 			return;
 		}
 
+		// history -a <file>
+		if (tokens.size() == 3 && tokens[1] == "-a")
+		{
+			std::ofstream file(tokens[2], std::ios::app);
+			if (!file.is_open())
+			{
+				std::cerr << "history: cannot write file" << std::endl;
+				return;
+			}
+
+			// Append only new entries
+			for (size_t i = historyWrittenCount; i < commandHistory.size(); ++i)
+			{
+				file << commandHistory[i] << '\n';
+			}
+
+			historyWrittenCount = commandHistory.size();
+			return;
+		}
+
 		// history <n>
 		size_t total = commandHistory.size();
 		size_t start = 0;
@@ -670,7 +739,9 @@ void runBuiltin(const std::vector<std::string> &tokens)
 			{
 				int n = std::stoi(tokens[1]);
 				if (n > 0 && static_cast<size_t>(n) < total)
+				{
 					start = total - n;
+				}
 			}
 			catch (...)
 			{
@@ -686,7 +757,9 @@ void runBuiltin(const std::vector<std::string> &tokens)
 	else if (cmd == "type")
 	{
 		if (tokens.size() < 2)
+		{
 			return;
+		}
 
 		const std::string &arg = tokens[1];
 		if (builtin.count(arg))
@@ -697,9 +770,13 @@ void runBuiltin(const std::vector<std::string> &tokens)
 		{
 			auto path = searchExecutable(arg);
 			if (path)
+			{
 				std::cout << arg << " is " << path->string() << std::endl;
+			}
 			else
+			{
 				std::cout << arg << ": not found" << std::endl;
+			}
 		}
 	}
 	else if (cmd == "pwd")
@@ -715,9 +792,13 @@ std::vector<std::vector<std::string>> splitByPipe(const std::vector<std::string>
 	for (const auto &t : tokens)
 	{
 		if (t == "|")
+		{
 			cmds.emplace_back();
+		}
 		else
+		{
 			cmds.back().push_back(t);
+		}
 	}
 
 	return cmds;
