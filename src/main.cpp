@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fcntl.h>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -8,13 +9,14 @@
 #include <sys/wait.h>
 #include <optional>
 
-namespace Shell
-{
-	std::vector<std::string> split(const std::string &str, const char delimiter);
-	bool isExecutable(const std::filesystem::path &p);
-	std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
-	std::vector<std::string> tokenize(const std::string &input);
-}
+struct Redirection;
+std::vector<std::string> split(const std::string &str, const char delimiter);
+bool isExecutable(const std::filesystem::path &p);
+std::optional<std::filesystem::path> searchExecutable(const std::string &filename);
+std::vector<std::string> tokenize(const std::string &input);
+Redirection parseRedirection(std::vector<std::string> &tokens);
+int applyStdoutRedirection(const Redirection &r);
+void restoreStdout(int saved);
 
 #if _WIN32
 char separator = ';';
@@ -24,7 +26,7 @@ char separator = ':';
 
 const std::unordered_set<std::string> builtin = {"exit", "echo", "type", "pwd", "cd"};
 const char *path = std::getenv("PATH");
-std::vector<std::string> dirs = Shell::split(path, separator);
+std::vector<std::string> dirs = split(path, separator);
 
 int main()
 {
@@ -36,7 +38,8 @@ int main()
 	{
 		std::cout << "$ ";
 		std::getline(std::cin, input);
-		std::vector<std::string> tokens = Shell::tokenize(input);
+		std::vector<std::string> tokens = tokenize(input);
+		Redirection redir = parseRedirection(tokens);
 		std::string command = tokens.at(0);
 		if (command == "exit")
 		{
@@ -63,9 +66,12 @@ int main()
 		}
 		else if (command == "echo")
 		{
+			int saved = applyStdoutRedirection(redir);
+
 			for (size_t i = 1; i < tokens.size(); i++)
 				std::cout << tokens.at(i) << " ";
 			std::cout << std::endl;
+			restoreStdout(saved);
 		}
 		else if (command == "type")
 		{
@@ -78,7 +84,7 @@ int main()
 			}
 
 			// Check if it's an executable
-			auto filePath = Shell::searchExecutable(file);
+			auto filePath = searchExecutable(file);
 			if (filePath)
 				std::cout << file << " is " << filePath->string() << std::endl;
 			else
@@ -95,7 +101,7 @@ int main()
 				args.push_back(const_cast<char *>(tokens.at(i).c_str()));
 			args.push_back(nullptr);
 
-			auto execPath = Shell::searchExecutable(command);
+			auto execPath = searchExecutable(command);
 			if (!execPath)
 			{
 				std::cout << command << ": not found" << std::endl;
@@ -104,6 +110,21 @@ int main()
 			pid_t processID = fork();
 			if (processID == 0)
 			{
+				if (redir.redirectStdout)
+				{
+					int fd = open(
+						redir.file.c_str(),
+						O_WRONLY | O_CREAT | O_TRUNC,
+						0644);
+
+					if (fd == -1)
+					{
+						perror("open");
+						std::exit(1);
+					}
+					dup2(fd, STDOUT_FILENO);
+					close(fd);
+				}
 				execvp(args[0], args.data());
 				std::cerr << "execvp failed" << std::endl;
 				std::exit(1);
@@ -119,7 +140,7 @@ int main()
 	return 1; // program must not get here
 }
 
-std::vector<std::string> Shell::split(const std::string &str, char delimiter)
+std::vector<std::string> split(const std::string &str, char delimiter)
 {
 	std::stringstream ss(str);
 	std::string token;
@@ -129,14 +150,14 @@ std::vector<std::string> Shell::split(const std::string &str, char delimiter)
 	return tokens;
 }
 
-bool Shell::isExecutable(const std::filesystem::path &p)
+bool isExecutable(const std::filesystem::path &p)
 {
 	using namespace std::filesystem;
 	auto pr = status(p).permissions();
 	return (pr & (perms::owner_exec | perms::group_exec | perms::others_exec)) != perms::none;
 }
 
-std::optional<std::filesystem::path> Shell::searchExecutable(const std::string &filename)
+std::optional<std::filesystem::path> searchExecutable(const std::string &filename)
 {
 	for (const auto &dir : dirs)
 	{
@@ -169,7 +190,7 @@ In double quote state,
 - append any other character LITERALLY
 
 */
-std::vector<std::string> Shell::tokenize(const std::string &input)
+std::vector<std::string> tokenize(const std::string &input)
 {
 	std::vector<std::string> tokens;
 	std::string current;
@@ -273,4 +294,61 @@ std::vector<std::string> Shell::tokenize(const std::string &input)
 	}
 
 	return tokens;
+}
+struct Redirection
+{
+	bool redirectStdout = false;
+	std::string file;
+};
+Redirection parseRedirection(std::vector<std::string> &tokens)
+{
+	Redirection r;
+
+	for (size_t i = 0; i < tokens.size(); ++i)
+	{
+		if (tokens[i] == ">" || tokens[i] == "1>")
+		{
+			if (i + 1 >= tokens.size())
+				break;
+
+			r.redirectStdout = true;
+			r.file = tokens[i + 1];
+
+			// Remove operator and filename
+			tokens.erase(tokens.begin() + i, tokens.begin() + i + 2);
+			break;
+		}
+	}
+
+	return r;
+}
+int applyStdoutRedirection(const Redirection &r)
+{
+	if (!r.redirectStdout)
+		return -1;
+
+	int fd = open(
+		r.file.c_str(),
+		O_WRONLY | O_CREAT | O_TRUNC,
+		0644);
+
+	if (fd == -1)
+	{
+		perror("open");
+		return -1;
+	}
+
+	int savedStdout = dup(STDOUT_FILENO);
+	dup2(fd, STDOUT_FILENO);
+	close(fd);
+
+	return savedStdout;
+}
+void restoreStdout(int saved)
+{
+	if (saved != -1)
+	{
+		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
 }
