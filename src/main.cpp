@@ -641,6 +641,25 @@ void runBuiltin(const std::vector<std::string> &tokens)
 			return;
 		}
 
+		// history -w <file>
+		if (tokens.size() == 3 && tokens[1] == "-w")
+		{
+			std::ofstream file(tokens[2], std::ios::trunc);
+			if (!file.is_open())
+			{
+				std::cerr << "history: cannot write file" << std::endl;
+				return;
+			}
+
+			for (const auto &entry : commandHistory)
+			{
+				file << entry << '\n';
+			}
+
+			// trailing newline already ensured by last '\n'
+			return;
+		}
+
 		// history <n>
 		size_t total = commandHistory.size();
 		size_t start = 0;
