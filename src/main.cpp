@@ -75,6 +75,7 @@ int main()
 
 	loadHistoryFromFile();
 	rl_attempted_completion_function = completionHook;
+	rl_completion_append_character = '\0';
 
 	while (true)
 	{
